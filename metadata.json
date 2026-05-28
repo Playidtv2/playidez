@@ -1,0 +1,6 @@
+{
+  "name": "IPTV Xtreme Player",
+  "description": "IPTV M3U Xtream Player supporting HLS, DASH, and MP4 playing with automatic playlist repair tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
