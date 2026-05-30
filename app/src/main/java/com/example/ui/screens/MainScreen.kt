@@ -1245,8 +1245,4 @@ fun EmptyStateDashboard(
 }
 
 // Lazy column max-height helper modifier to limit list heights inside popup dialogue boxes
-fun Modifier.maxHeightIn(max: androidx.compose.ui.unit.Dp): Modifier = this.then(
-    object : androidx.compose.ui.Modifier.Element {
-        // Simple custom layout sizing constraints
-    }
-)
+fun Modifier.maxHeightIn(max: androidx.compose.ui.unit.Dp): Modifier = this.heightIn(max = max)

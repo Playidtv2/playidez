@@ -61,6 +61,26 @@ class IptvRepository(
         return playlistErrorDao.getErrorsByPlaylist(playlistId)
     }
 
+    fun getFilteredChannels(
+        tab: String,
+        playlistId: Int?,
+        category: String?,
+        showFavs: Boolean,
+        query: String
+    ): Flow<List<ChannelItem>> {
+        return channelDao.getFilteredChannels(
+            tab = tab,
+            playlistId = playlistId,
+            category = category,
+            showFavs = if (showFavs) 1 else 0,
+            query = query
+        )
+    }
+
+    fun getCategoriesByFilter(tab: String, playlistId: Int?): Flow<List<String>> {
+        return channelDao.getCategoriesByFilter(tab, playlistId)
+    }
+
     /**
      * Reconstruct M3U URL for Xtream codes logins.
      */

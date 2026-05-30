@@ -11,6 +11,7 @@ import com.example.data.repository.IptvRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class IptvViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: IptvRepository
@@ -66,44 +67,34 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Fetch all categories for currently selected SuperCategory (Tab)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val categories: StateFlow<List<String>> = combine(
         _currentTab,
-        _selectedPlaylistId,
-        repository.allChannels
-    ) { currentTab, playlistId, allCh ->
-        allCh.filter { it.superCategory == currentTab && (playlistId == null || it.playlistId == playlistId) }
-            .map { it.category }
-            .distinct()
-            .sorted()
+        _selectedPlaylistId
+    ) { currentTab, playlistId ->
+        Pair(currentTab, playlistId)
+    }.flatMapLatest { (currentTab, playlistId) ->
+        repository.getCategoriesByFilter(currentTab, playlistId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Filter state representation to bypass Kotlin's 5-flow combine limitation
-    private val filterState: Flow<IptvFilter> = combine(
+    // Filter channels based on search query, playlistId, category, supercategory, and favorites
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val filteredChannels: StateFlow<List<ChannelItem>> = combine(
         _currentTab,
         _selectedPlaylistId,
         _selectedCategory,
-        _searchQuery,
-        _showFavoritesOnly
-    ) { tab, playlistId, category, query, showFavs ->
+        _showFavoritesOnly,
+        _searchQuery
+    ) { tab, playlistId, category, showFavs, query ->
         IptvFilter(tab, playlistId, category, query, showFavs)
-    }
-
-    // Filter channels based on search query, playlistId, category, supercategory, and favorites
-    val filteredChannels: StateFlow<List<ChannelItem>> = combine(
-        repository.allChannels,
-        filterState
-    ) { allCh, filter ->
-        allCh.filter { channel ->
-            val matchesTab = channel.superCategory == filter.tab
-            val matchesPlaylist = filter.playlistId == null || channel.playlistId == filter.playlistId
-            val matchesCategory = filter.category == null || channel.category == filter.category
-            val matchesFavorites = !filter.showFavs || channel.isFavorite
-            val matchesSearch = filter.query.isEmpty() || 
-                    channel.name.contains(filter.query, ignoreCase = true) || 
-                    channel.category.contains(filter.query, ignoreCase = true)
-
-            matchesTab && matchesPlaylist && matchesCategory && matchesFavorites && matchesSearch
-        }
+    }.flatMapLatest { filter ->
+        repository.getFilteredChannels(
+            tab = filter.tab,
+            playlistId = filter.playlistId,
+            category = filter.category,
+            showFavs = filter.showFavs,
+            query = filter.query
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Watch for errors matching the currently selected playlist
