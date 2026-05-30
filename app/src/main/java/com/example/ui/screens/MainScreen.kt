@@ -821,8 +821,8 @@ fun ImportPlaylistDialog(
 
                         // Form display
                         if (selectedImportType == "m3u") {
-                            var name by remember { mutableStateOf("") }
-                            var url by remember { mutableStateOf("") }
+                            var name by remember { mutableStateOf("PLAYIDVIP M3U") }
+                            var url by remember { mutableStateOf("http://103.114.203.129:8080/get.php?username=playidvip&password=12345&type=m3u_plus") }
 
                             OutlinedTextField(
                                 value = name,
@@ -846,7 +846,42 @@ fun ImportPlaylistDialog(
                                     .testTag("playlist_url_input")
                             )
 
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Custom interactive layout for quick presets and inputs clearing
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            name = "PLAYIDVIP M3U"
+                                            url = "http://103.114.203.129:8080/get.php?username=playidvip&password=12345&type=m3u_plus"
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("👑 แทรกลิงก์ PLAYIDVIP", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Text(
+                                    text = "ล้างข้อมูล 🧹",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clickable {
+                                            name = ""
+                                            url = ""
+                                        }
+                                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
 
                             Button(
                                 onClick = { onAddM3u(name, url) },
