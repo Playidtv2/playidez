@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.StringReader
 import java.util.concurrent.TimeUnit
 
@@ -90,6 +91,37 @@ class IptvRepository(
     }
 
     /**
+     * Helper to download and parse M3U file via Stream to prevent OOM
+     */
+    private suspend fun parsePlaylistFromUrl(
+        url: String,
+        playlistId: Int,
+        customClient: OkHttpClient? = null
+    ): Result<Pair<List<ChannelItem>, List<PlaylistError>>> = withContext(Dispatchers.IO) {
+        val client = customClient ?: httpClient
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTVStreamPlayer/1.1") // Standard agent works best
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("เซิร์ฟเวอร์ตอบกลับรหัสข้อผิดพลาด HTTP: ${response.code}"))
+                }
+                val body = response.body ?: return@withContext Result.failure(Exception("ไม่สามารถดึงข้อมูลเนื้อหาได้ (เนื้อหาว่างเปล่า)"))
+                
+                // Stream using BufferedReader for ultimate memory efficiency!
+                val reader = BufferedReader(InputStreamReader(body.byteStream(), Charsets.UTF_8))
+                val result = parseM3uFromReader(reader, playlistId)
+                Result.success(result)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Adds an M3U playlist by parsing either a remote URL or plain text content.
      */
     suspend fun addPlaylist(
@@ -118,27 +150,26 @@ class IptvRepository(
 
             val playlistId = playlistDao.insertPlaylist(playlist).toInt()
             
-            // Try downloading and parsing
-            val fetchResult = fetchPlaylistContent(playlistUrl)
-            if (fetchResult.isSuccess) {
-                val content = fetchResult.getOrThrow()
-                val (channels, errors) = parseM3uContent(content, playlistId)
+            // Try downloading and parsing with our custom optimized streamer
+            val parseResult = parsePlaylistFromUrl(playlistUrl, playlistId)
+            if (parseResult.isSuccess) {
+                val (channels, errors) = parseResult.getOrThrow()
                 
                 // Save database
                 channelDao.deleteChannelsByPlaylist(playlistId)
                 playlistErrorDao.deleteErrorsByPlaylist(playlistId)
                 
                 if (channels.isNotEmpty()) {
-                    channelDao.insertChannels(channels)
+                    channelDao.insertChannelsInChunks(channels)
                 }
                 if (errors.isNotEmpty()) {
-                    playlistErrorDao.insertErrors(errors)
+                    playlistErrorDao.insertErrorsInChunks(errors)
                 }
                 
                 Result.success(playlistId)
             } else {
                 // If it fails, save playlist entry but with network errors to repair later
-                val errorMsg = fetchResult.exceptionOrNull()?.message ?: "Unknown Network Error"
+                val errorMsg = parseResult.exceptionOrNull()?.message ?: "Unknown Network Error"
                 val errors = listOf(
                     PlaylistError(
                         playlistId = playlistId,
@@ -147,7 +178,7 @@ class IptvRepository(
                         errorMessage = "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้: $errorMsg"
                     )
                 )
-                playlistErrorDao.insertErrors(errors)
+                playlistErrorDao.insertErrorsInChunks(errors)
                 Result.failure(Exception("ดาวน์โหลดเพลย์ลิสต์ไม่สำเร็จ: $errorMsg แต่เพิ่มรายการเพื่อซ่อมแซมภายหลังได้"))
             }
         } catch (e: Exception) {
@@ -178,36 +209,25 @@ class IptvRepository(
                 .followSslRedirects(true)
                 .build()
 
-            val request = Request.Builder()
-                .url(playlistUrl)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTVStreamPlayer/1.1") // More IPTV servers accept standard agents
-                .build()
+            val parseResult = parsePlaylistFromUrl(playlistUrl, playlistId, customClient = client)
 
-            val responseResult = runCatching {
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) throw Exception("HTTP Code: ${response.code}")
-                    response.body?.string() ?: throw Exception(" empty body")
-                }
-            }
-
-            if (responseResult.isSuccess) {
-                val content = responseResult.getOrThrow()
-                val (channels, errors) = parseM3uContent(content, playlistId)
+            if (parseResult.isSuccess) {
+                val (channels, errors) = parseResult.getOrThrow()
 
                 channelDao.deleteChannelsByPlaylist(playlistId)
                 playlistErrorDao.deleteErrorsByPlaylist(playlistId)
 
                 if (channels.isNotEmpty()) {
-                    channelDao.insertChannels(channels)
+                    channelDao.insertChannelsInChunks(channels)
                 }
                 if (errors.isNotEmpty()) {
-                    playlistErrorDao.insertErrors(errors)
+                    playlistErrorDao.insertErrorsInChunks(errors)
                 }
 
                 playlistDao.insertPlaylist(playlist.copy(lastUpdated = System.currentTimeMillis()))
                 Result.success(playlistId)
             } else {
-                val errorMsg = responseResult.exceptionOrNull()?.message ?: "Unknown Error"
+                val errorMsg = parseResult.exceptionOrNull()?.message ?: "Unknown Error"
                 val repairErrors = listOf(
                     PlaylistError(
                         playlistId = playlistId,
@@ -217,28 +237,8 @@ class IptvRepository(
                     )
                 )
                 playlistErrorDao.deleteErrorsByPlaylist(playlistId)
-                playlistErrorDao.insertErrors(repairErrors)
+                playlistErrorDao.insertErrorsInChunks(repairErrors)
                 Result.failure(Exception("ความพยายามซ่อมแซมล้มเหลว: $errorMsg"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    private suspend fun fetchPlaylistContent(url: String): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url(url)
-                // Set default player user agents as IPTV links often filter against Java/OkHttp agents
-                .header("User-Agent", "IPTV_Player_Android_Media3")
-                .build()
-            
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(Exception("HTTP error ${response.code}"))
-                }
-                val body = response.body?.string() ?: ""
-                Result.success(body)
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -249,11 +249,10 @@ class IptvRepository(
      * Parses M3U contents and splits channels into TV, Movie (หนัง), and Series (ซีรีย์).
      * Collects syntax errors to support the "ซ่อมไฟล์" feature.
      */
-    private fun parseM3uContent(content: String, playlistId: Int): Pair<List<ChannelItem>, List<PlaylistError>> {
+    private fun parseM3uFromReader(reader: BufferedReader, playlistId: Int): Pair<List<ChannelItem>, List<PlaylistError>> {
         val channels = mutableListOf<ChannelItem>()
         val errors = mutableListOf<PlaylistError>()
         
-        val reader = BufferedReader(StringReader(content))
         var line: String?
         var lineNum = 0
         
@@ -344,6 +343,10 @@ class IptvRepository(
         }
         
         return Pair(channels, errors)
+    }
+
+    private fun parseM3uContent(content: String, playlistId: Int): Pair<List<ChannelItem>, List<PlaylistError>> {
+        return parseM3uFromReader(BufferedReader(StringReader(content)), playlistId)
     }
 
     /**
@@ -454,6 +457,6 @@ class IptvRepository(
             )
         )
 
-        channelDao.insertChannels(demoChannels)
+        channelDao.insertChannelsInChunks(demoChannels)
     }
 }

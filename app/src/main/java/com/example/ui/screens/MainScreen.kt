@@ -70,6 +70,13 @@ fun MainScreen(
     // Dialog sheets states
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
     var showPlaylistManagerDialog by remember { mutableStateOf(false) }
+    var isFullscreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentPlayingChannel) {
+        if (currentPlayingChannel == null) {
+            isFullscreen = false
+        }
+    }
 
     // Display feedback toast
     LaunchedEffect(key1 = actionFeedback) {
@@ -82,6 +89,7 @@ fun MainScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
+          if (currentPlayingChannel == null || !isFullscreen) {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -151,13 +159,14 @@ fun MainScreen(
                     }
                 }
             )
+          }
         }
     ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .padding(innerPadding)
+                .padding(if (currentPlayingChannel != null && isFullscreen) PaddingValues(0.dp) else innerPadding)
         ) {
             // Two-pane: Main list layout + Active Player frame
             if (currentPlayingChannel != null) {
@@ -165,6 +174,8 @@ fun MainScreen(
                 VideoPlayer(
                     channel = currentPlayingChannel!!,
                     onClose = { viewModel.playChannel(null) },
+                    isFullscreen = isFullscreen,
+                    onToggleFullscreen = { isFullscreen = !isFullscreen },
                     modifier = Modifier.fillMaxSize()
                 )
             } else {

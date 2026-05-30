@@ -46,9 +46,25 @@ import kotlinx.coroutines.delay
 fun VideoPlayer(
     channel: ChannelItem,
     onClose: () -> Unit,
+    isFullscreen: Boolean,
+    onToggleFullscreen: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val activity = context as? android.app.Activity
+
+    DisposableEffect(isFullscreen) {
+        val originalOrientation = activity?.requestedOrientation ?: android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if (isFullscreen) {
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        } else {
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        onDispose {
+            activity?.requestedOrientation = originalOrientation
+        }
+    }
+
     val exoPlayer = remember(channel.url) {
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTV_Player_Android_Media3/1.5.1")
@@ -300,11 +316,29 @@ fun VideoPlayer(
                         }
                     }
 
-                    // Player AspectRatio Scale Controls (Fit, Stretch, Zoom)
+                    // Player AspectRatio Scale Controls (Fit, Stretch, Zoom) + Fullscreen Toggle
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isFullscreen) MaterialTheme.colorScheme.primary.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.15f),
+                            modifier = Modifier.clickable { onToggleFullscreen() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isFullscreen) "📱 ย่อหน้าจอ" else "📺 ขยายเต็มจอ",
+                                    color = if (isFullscreen) Color.Black else Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = Color.White.copy(alpha = 0.15f),

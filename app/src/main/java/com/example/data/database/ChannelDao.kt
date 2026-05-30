@@ -21,6 +21,13 @@ interface ChannelDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChannels(channels: List<ChannelItem>)
 
+    @Transaction
+    suspend fun insertChannelsInChunks(channels: List<ChannelItem>) {
+        channels.chunked(150).forEach { chunk ->
+            insertChannels(chunk)
+        }
+    }
+
     @Query("DELETE FROM channels WHERE playlistId = :playlistId")
     suspend fun deleteChannelsByPlaylist(playlistId: Int)
 

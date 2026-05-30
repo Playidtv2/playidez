@@ -12,6 +12,13 @@ interface PlaylistErrorDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertErrors(errors: List<PlaylistError>)
 
+    @Transaction
+    suspend fun insertErrorsInChunks(errors: List<PlaylistError>) {
+        errors.chunked(150).forEach { chunk ->
+            insertErrors(chunk)
+        }
+    }
+
     @Query("DELETE FROM playlist_errors WHERE playlistId = :playlistId")
     suspend fun deleteErrorsByPlaylist(playlistId: Int)
 }
